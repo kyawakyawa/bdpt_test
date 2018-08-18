@@ -4,7 +4,7 @@
 #include "Sphere.hpp"
 
 int main() {
-    Camera camera(320,240,Vec3(50.0, 40.8, 190.0),Vec3(0,0,-1),Vec3(0,1,0),2 * std::atan(2.0 / 3) * 180.0 / 3.1415926535,140,42.0/17);
+    Camera camera(640,480,Vec3(50.0, 40.8, 190.0),Vec3(0,0,-1),Vec3(0,1,0),2 * std::atan(2.0 / 3) * 180.0 / 3.1415926535,140,42.0/17);
     /*std::cout << camera.sensor_center + camera.position << std::endl;
     std::cout << camera.height_of_sensor << std::endl;
     std::cout << camera.dist_sensor_lens << std::endl;
@@ -33,7 +33,7 @@ int main() {
 
     Bdpt bdpt;
 
-    bdpt.bdpt(scene,16);
+    bdpt.bdpt(scene,1);
 
     scene.camera->out_ppm_stdio();
 

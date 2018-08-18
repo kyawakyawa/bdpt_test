@@ -9,6 +9,7 @@
 
 struct Shape{
 	std::vector< Material > materials;//材質
+	int light_id = -1;//光源のインデックス
 
 	inline Shape() = default;
 

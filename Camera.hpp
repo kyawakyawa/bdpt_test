@@ -52,10 +52,10 @@ struct Camera {
     ,dist_lens_object_plane(focus_distance)
 
     ,pdf_i(1.0 / (height_of_sensor * width_of_sensor / pixel_h / pixel_w)),pdf_l(1.0 / M_PI / lens_radius / lens_radius)
-    ,sensibility(0.1 * pdf_i) {};
+    ,sensibility(0.001 * pdf_i) {};
 
     void init() {
-        for(int i = 0;i < pixel_h;i++) for(int j = 0;j < pixel_w;j++)img[i * pixel_w + j] = img_l[i * pixel_w + j] = img_e[i * pixel_w + j] = FColor(0,0,0);
+        for(int i = 0;i < pixel_h * pixel_w;i++)img[i] = img_l[i] = img_e[i] = FColor(0,0,0);
     }
 
     Intersection_point* get_intersection_with_lens(const Ray &ray) {
@@ -117,8 +117,11 @@ struct Camera {
 
     void out_ppm_stdio() const {
         std::printf("P3\n%d %d\n255\n",pixel_w,pixel_h);
-        for(int i = 0;i < pixel_h * pixel_w;i++) 
-            img[i].print255();
+        //for(int i = 0;i < pixel_h * pixel_w;i++) 
+            //img[i].print255();
+        for(int i = pixel_h - 1;i >= 0;i--) 
+            for(int j = pixel_w - 1;j >= 0;j--) 
+                img[i * pixel_w + j].print255();
     }
 
     ~Camera() {

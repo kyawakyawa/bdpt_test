@@ -42,7 +42,7 @@ struct Bdpt {
         for(int k = 0;k < samples;k++) {
             for(int i = 0;i < scene.camera->pixel_h;i++) {
                 for(int j = 0;j < scene.camera->pixel_w;j++) {
-                    light_tracing(scene);
+                    light_tracing(scene,i,j);
                     path_tracing(scene,i,j);
                     merge(scene,i,j);
                 }
@@ -57,7 +57,7 @@ struct Bdpt {
         }
     }
 
-    /*static*/ void light_tracing(Scene &scene) {
+    /*static*/ void light_tracing(Scene &scene,const int i,const int j) {
         light_sub_path_vertex.clear();
         light_sub_path_weight.clear();
 
@@ -96,7 +96,7 @@ struct Bdpt {
 
                 light_sub_path_weight.push_back(light_sub_path_weight[0]);
 
-                get_subpath(Ray(light_info->point,omega),light_sub_path_vertex,light_sub_path_weight,scene);
+                get_subpath(Ray(light_info->point,omega),light_sub_path_vertex,light_sub_path_weight,scene,i,j,true);
 
                 delete light_info;
                 break;
@@ -133,14 +133,14 @@ struct Bdpt {
         const Vec3 omega = (x1 - x0).normalized();
 
         eye_sub_path_weight.push_back(std::pow(omega * normal,(R)4.0) / ((R)3.1415926535 * scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens * scene.camera->pdf_i) * eye_sub_path_weight[0]);
-        get_subpath(Ray(x0,omega),eye_sub_path_vertex,eye_sub_path_weight,scene);
+        get_subpath(Ray(x0,omega),eye_sub_path_vertex,eye_sub_path_weight,scene,i,j,false);
 
     }
 
-    /*static*/ void get_subpath(Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,std::vector<FColor> &sub_path_weight,Scene &scene){
+    /*static*/ void get_subpath(Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,std::vector<FColor> &sub_path_weight,Scene &scene,const int i,const int j,const bool is_light_tracing){
         int depth = 0;
-        const int min_depth = 4;
-        const int max_depth = 16;
+        const int min_depth = 2;
+        const int max_depth = 8;
         while(true) {
             
             Intersection_info *intersection_info = get_intersection_of_nearest(ray,scene);
@@ -169,6 +169,20 @@ struct Bdpt {
 			    delete intersection_info;
                 break;
 		    }
+
+            if(is_light_tracing) {
+                ;
+            }else {
+                const Shape *shape = intersection_info->shape;
+
+                if(shape->light_id >= 0) {//衝突したのが光源だったら
+                    const int id = shape->light_id;
+                    const Light_source *light = scene.lights[id];
+
+                    const int store = pdf_y0;//weight計算の光源側のpdfが変わるので記憶しておく
+                    pdf_y0 = (light_P[i + 1] - light_P[i]) / shape->get_S();
+                }
+            }
 
             switch (material.type){
 
@@ -350,12 +364,12 @@ struct Bdpt {
 
         for(int i = s - 1;i >= 0;i--) {
             m /= P[i];
-            w += m;
+            w += m * m;
         }
         m = 1;
         for(int i = s + 1;i <= k;i++) {
             m *= P[i];
-            w += m;
+            w += m * m;
         }
 
         delete[] Gi;
@@ -391,6 +405,7 @@ struct Bdpt {
 		for(int i = 1;i < scene.lights.size() + 1;i++) {
 			light_P[i] *= d;
 		}
+
 	}
 
     ~Bdpt() {

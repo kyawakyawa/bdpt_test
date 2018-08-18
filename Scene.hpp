@@ -27,6 +27,8 @@ struct Scene{
 	inline void add_as_light(Shape *shape){
 		add(shape);
 
+		shape->light_id = lights.size();
+
 		lights.push_back(new Area_light_source(shape));
 	}
 
