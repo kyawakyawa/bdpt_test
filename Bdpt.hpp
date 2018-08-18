@@ -9,29 +9,25 @@
 struct Vertex_data_for_bdpt {
     const Vec3 position;
     const Vec3 normal;
-    //const Vec3 omega_in;
     const Material bsdf;
-    //const FColor weight;
-    //const R p;
-    //const R russian_roulette;
+    const FColor alpha;//頂点のウェイト
+    R p_light;//光源側からトレースする時一つ前の頂点からこの頂点に来る確率密度(面積測度)
+    R p_eye;//視線側からトレースする時一つ前の頂点からこの頂点に来る確率密度(面積測度)
 
-    Vertex_data_for_bdpt(const Vec3 &position_,const Vec3 &normal_/*,Vec3 &omega_in_*/,const Material &bsdf_/*,const FColor &weight_*//*,R p_*//*,const R russian_roulette_*/) :
-    position(position_),normal(normal_)/*,omega_in(omega_in_)*/,bsdf(bsdf_)/*,weight(weight_)*//*,p(p_)*//*,russian_roulette(russian_roulette_)*/ {};
+    Vertex_data_for_bdpt(const Vec3 &position_,const Vec3 &normal_,const Material &bsdf_,const FColor &alpha_,const R p_light_,const R p_eye_) :
+    position(position_),normal(normal_),bsdf(bsdf_),alpha(alpha_),p_light(p_light_),p_eye(p_eye_) {};
 };
 
 struct Bdpt {
     /*static*/ std::vector<Vertex_data_for_bdpt> light_sub_path_vertex;
-    /*static*/ std::vector<FColor> light_sub_path_weight;
 
     /*static*/ std::vector<Vertex_data_for_bdpt> eye_sub_path_vertex;
-    /*static*/ std::vector<FColor> eye_sub_path_weight;
 
-    /*static*/ R *light_P;
+    /*static*/ R *light_P = nullptr;
 
-    /*static*/ R pdf_y0,pdf_z0;
+    /*static*/ //R pdf_y0,pdf_z0;
 
     Bdpt() {
-        light_P = nullptr;
     }
 
     /*static*/ void bdpt(Scene &scene,int samples) {
@@ -59,9 +55,6 @@ struct Bdpt {
 
     /*static*/ void light_tracing(Scene &scene,const int i,const int j) {
         light_sub_path_vertex.clear();
-        light_sub_path_weight.clear();
-
-        light_sub_path_weight.push_back(FColor(1,1,1));
 
         const R u = Random::rando();
 
@@ -69,16 +62,18 @@ struct Bdpt {
 			if(u < light_P[i + 1] || i - 1 == scene.lights.size()){
 				Light_info *light_info = scene.lights[i]->light_point();
 
+                const R pdf_y0 = (light_P[i + 1] - light_P[i]) * light_info->pdf;
+
+                const FColor alpha = light_info->emission / pdf_y0;
+
                 light_sub_path_vertex.push_back(Vertex_data_for_bdpt(
                     light_info->point
                     ,light_info->normal
                     ,Material(FColor(1,1,1))
+                    ,alpha
+                    ,pdf_y0
+                    ,1//暫定的に入力
                 ));
-
-                pdf_y0 = (light_P[i + 1] - light_P[i]) * light_info->pdf;
-
-                light_sub_path_weight.push_back(light_info->emission / pdf_y0);
-
 
                 Vec3 u;
 				if (std::abs(light_info->normal.x) > 1e-6) // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
@@ -94,9 +89,11 @@ struct Bdpt {
 					v * std::sin(u1) * u3 +
 					light_info->normal * std::sqrt(1 - u2);
 
-                light_sub_path_weight.push_back(light_sub_path_weight[0]);
+                //light_sub_path_weight.push_back(light_sub_path_weight[0]);
 
-                get_subpath(Ray(light_info->point,omega),light_sub_path_vertex,light_sub_path_weight,scene,i,j,true);
+                R cos_ = light_info->normal * omega;
+
+                get_subpath(alpha,M_1_PI * cos_, cos_,Ray(light_info->point,omega),light_sub_path_vertex,scene,i,j,true);//拡散放射のときはα1=α2?
 
                 delete light_info;
                 break;
@@ -106,24 +103,26 @@ struct Bdpt {
 
     /*static*/ void path_tracing(Scene &scene,const int i,const int j) {
         eye_sub_path_vertex.clear();
-        eye_sub_path_weight.clear();
-
-        eye_sub_path_weight.push_back(FColor(1,1,1));
 
         const Vec3 x0 = scene.camera->sample_one_point_on_lens();
         const Vec3 &normal = scene.camera->dir;
+
+        const R pdf_z0 = scene.camera->pdf_l;
+
+        const R W = scene.camera->sensibility;
+
+        const FColor alpha = FColor(W,W,W) / pdf_z0;
 
         eye_sub_path_vertex.push_back(Vertex_data_for_bdpt(
             x0
             ,normal
             ,Material(FColor(1,1,1))
+            ,alpha
+            ,1
+            ,pdf_z0
         ));
 
-        const R W = scene.camera->sensibility;
 
-        pdf_z0 = scene.camera->pdf_l;
-
-        eye_sub_path_weight.push_back(FColor(W,W,W) / pdf_z0);
 
         const Vec3 xp = scene.camera->sample_one_point_on_image_sensor(i,j);
         const Vec3 e = (scene.camera->position - xp).normalized();
@@ -132,12 +131,16 @@ struct Bdpt {
 
         const Vec3 omega = (x1 - x0).normalized();
 
-        eye_sub_path_weight.push_back(std::pow(omega * normal,(R)4.0) / ((R)3.1415926535 * scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens * scene.camera->pdf_i) * eye_sub_path_weight[0]);
-        get_subpath(Ray(x0,omega),eye_sub_path_vertex,eye_sub_path_weight,scene,i,j,false);
+        const R cos_ = omega * normal;
+        const R p_sigma = scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens * scene.camera->pdf_i / std::pow(cos_,4);
+
+        const FColor alpha2 = alpha / (p_sigma * M_PI);
+
+        get_subpath(alpha2,p_sigma,cos_,Ray(x0,omega),eye_sub_path_vertex,scene,i,j,false);
 
     }
 
-    /*static*/ void get_subpath(Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,std::vector<FColor> &sub_path_weight,Scene &scene,const int i,const int j,const bool is_light_tracing){
+    /*static*/ void get_subpath(FColor alpha,R previous_P_sigma,R previous_cos,Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,Scene &scene,const int i,const int j,const bool is_light_tracing){
         int depth = 0;
         const int min_depth = 2;
         const int max_depth = 8;
@@ -152,65 +155,109 @@ struct Bdpt {
 		    const Intersection_point *intersection = intersection_info->intersection_point;
 		    const Material material = intersection->material;
 		    const Vec3 normal = ((ray.direction * intersection->normal < 0.0) ? 1.0 : -1.0) * intersection->normal;
-		
-		    //FColor L = (ray.direction * intersection->normal < 0.0) ? material.Le : FColor(0,0,0);
+            const R dist2 = intersection->distance * intersection->distance;
 
-		    R P = std::max(std::max(material.kd.red,material.kd.green),material.kd.blue);
+            R rev_P;
 
-		    if(depth < min_depth)
-			    P = 1.0;
-		
-		    if (depth >= max_depth)//最大値で大幅に確率を下げる
-			    P *= pow(0.5, depth - max_depth);
-		
-		
+            switch (material.type) {
+            case MT_DEFAULT : {
+                rev_P = M_1_PI * ((-ray.direction) * normal) * previous_cos / dist2;
+            }break;
+            default : ;
 
-		    if(P < Random::rando()){//再帰が深すぎ
-			    delete intersection_info;
-                break;
-		    }
+            }
+
+            if(is_light_tracing) {
+                sub_path_vertex[sub_path_vertex.size() - 1].p_eye = rev_P;
+            }else {
+                sub_path_vertex[sub_path_vertex.size() - 1].p_light = rev_P;
+            }
+
+            R P;
+
+            switch (material.type) {
+            case MT_DEFAULT : {
+                P = previous_P_sigma * ((-ray.direction) * normal) / dist2;
+            }break;
+            default : ;
+
+            }
+
+            R pl,pe;
+            if(is_light_tracing) {
+                pl = P;pe = 1;
+            }else {
+                pl = 1;pe = P;
+            }
+            sub_path_vertex.push_back(Vertex_data_for_bdpt(
+                intersection->position
+                ,normal
+                ,material.type
+                ,alpha
+                ,pl
+                ,pe
+            ));
 
             if(is_light_tracing) {
                 ;
             }else {
-                const Shape *shape = intersection_info->shape;
+                //const Shape *shape = intersection_info->shape;
 
-                if(shape->light_id >= 0) {//衝突したのが光源だったら
+                /*if(shape->light_id >= 0) {//衝突したのが光源だったら
                     const int id = shape->light_id;
                     const Light_source *light = scene.lights[id];
 
                     const int store = pdf_y0;//weight計算の光源側のpdfが変わるので記憶しておく
                     pdf_y0 = (light_P[i + 1] - light_P[i]) / shape->get_S();
-                }
+                }*/
             }
+
+            Vec3 omega;
 
             switch (material.type){
 
             case MT_DEFAULT: {
-			Vec3 u;
-			if (std::abs(normal.x) > 1e-6) // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
-				u = (cross(Vec3(0.0, 1.0, 0.0), normal)).normalized();
-			else
-				u = (cross(Vec3(1.0, 0.0, 0.0), normal)).normalized();
-			Vec3 v = cross(normal,u);
+    			Vec3 u;
+    			if (std::abs(normal.x) > 1e-6) // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
+    				u = (cross(Vec3(0.0, 1.0, 0.0), normal)).normalized();
+    			else
+    				u = (cross(Vec3(1.0, 0.0, 0.0), normal)).normalized();
+    			Vec3 v = cross(normal,u);
 
-			R u1 = Random::rando() * 2.0 * 3.1415926535,u2 = Random::rando(),u3 = std::sqrt(u2);
+    			R u1 = Random::rando() * 2.0 * 3.1415926535,u2 = Random::rando(),u3 = std::sqrt(u2);
 
-			Vec3 omega = 
-				u * std::cos(u1) * u3 +
-				v * std::sin(u1) * u3 +
-				normal * std::sqrt(1 - u2);
+    			omega = 
+    				u * std::cos(u1) * u3 +
+    				v * std::sin(u1) * u3 +
+    				normal * std::sqrt(1 - u2);
 
-            sub_path_vertex.push_back(Vertex_data_for_bdpt(intersection->position,normal,material));
-            sub_path_weight.push_back(material.kd * *(sub_path_weight.end() - 1) / P);
+                //sub_path_vertex.push_back(Vertex_data_for_bdpt(intersection->position,normal,material));
+                //sub_path_weight.push_back(material.kd * *(sub_path_weight.end() - 1) / P);
 
-            ray = Ray(intersection->position,omega);
+                alpha *= material.kd;
 
 		    } break;
             default : {
                 ;
             }break;
             }
+
+            R PRR = std::min((R)1,std::max(std::max(material.kd.red,material.kd.green),material.kd.blue));
+
+    		if(depth < min_depth)
+			    PRR = 1.0;
+		
+		    if (depth >= max_depth)//最大値で大幅に確率を下げる
+			    PRR *= pow(0.5, depth - max_depth);
+		
+		
+
+    		if(PRR < Random::rando()){
+			    delete intersection_info;
+                break;
+		    }
+
+            alpha = alpha / PRR;
 
             depth++;
 
