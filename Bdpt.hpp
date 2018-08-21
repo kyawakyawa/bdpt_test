@@ -59,7 +59,7 @@ struct Bdpt {
         const R u = Random::rando();
 
 		for(int i = 0;i < scene.lights.size();i++) {
-			if(u < light_P[i + 1] || i - 1 == scene.lights.size()){
+			if(u < light_P[i + 1] || i == (int)scene.lights.size() - 1){
 				Light_info *light_info = scene.lights[i]->light_point();
 
                 const R pdf_y0 = (light_P[i + 1] - light_P[i]) * light_info->pdf;
@@ -69,14 +69,14 @@ struct Bdpt {
                 light_sub_path_vertex.push_back(Vertex_data_for_bdpt(
                     light_info->point
                     ,light_info->normal
-                    ,Material(FColor(1,1,1))
+                    ,Material(FColor(M_PI,M_PI,M_PI))
                     ,alpha
                     ,pdf_y0
                     ,1//暫定的に入力
                 ));
 
                 Vec3 u;
-				if (std::abs(light_info->normal.x) > 1e-6) // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
+				if (std::abs(light_info->normal.x) > EPS) // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
 					u = (cross(Vec3(0.0, 1.0, 0.0), light_info->normal)).normalized();
 				else
 					u = (cross(Vec3(1.0, 0.0, 0.0), light_info->normal)).normalized();
@@ -93,7 +93,7 @@ struct Bdpt {
 
                 R cos_ = light_info->normal * omega;
 
-                get_subpath(alpha,M_1_PI * cos_, cos_,Ray(light_info->point,omega),light_sub_path_vertex,scene,i,j,true);//拡散放射のときはα1=α2?
+                get_subpath(M_PI * alpha,cos_ * M_1_PI,cos_,Ray(light_info->point,omega),light_sub_path_vertex,scene,i,j,true);//拡散放射のときはα1=α2?
 
                 delete light_info;
                 break;
@@ -104,7 +104,7 @@ struct Bdpt {
     /*static*/ void path_tracing(Scene &scene,const int i,const int j) {
         eye_sub_path_vertex.clear();
 
-        const Vec3 x0 = scene.camera->sample_one_point_on_lens();
+        const Vec3 z0 = scene.camera->sample_one_point_on_lens();
         const Vec3 &normal = scene.camera->dir;
 
         const R pdf_z0 = scene.camera->pdf_l;
@@ -114,7 +114,7 @@ struct Bdpt {
         const FColor alpha = FColor(W,W,W) / pdf_z0;
 
         eye_sub_path_vertex.push_back(Vertex_data_for_bdpt(
-            x0
+            z0
             ,normal
             ,Material(FColor(1,1,1))
             ,alpha
@@ -124,26 +124,28 @@ struct Bdpt {
 
 
 
-        const Vec3 xp = scene.camera->sample_one_point_on_image_sensor(i,j);
-        const Vec3 e = (scene.camera->position - xp).normalized();
+        const Vec3 zp = scene.camera->sample_one_point_on_image_sensor(i,j);
+        const Vec3 e = (scene.camera->position - zp).normalized();
 
-        const Vec3 x1 = scene.camera->position + e * scene.camera->dist_lens_object_plane / (e * scene.camera->dir);
+        const Vec3 z1 = scene.camera->position + e * scene.camera->dist_lens_object_plane / (e * scene.camera->dir);
 
-        const Vec3 omega = (x1 - x0).normalized();
+        const Vec3 omega = (z1 - z0).normalized();
 
         const R cos_ = omega * normal;
-        const R p_sigma = scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens * scene.camera->pdf_i / std::pow(cos_,4);
+        const R dp_square = scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens;
 
-        const FColor alpha2 = alpha / (p_sigma * M_PI);
+        const R p_sigma = dp_square * scene.camera->pdf_i / std::pow(cos_,4);
 
-        get_subpath(alpha2,p_sigma,cos_,Ray(x0,omega),eye_sub_path_vertex,scene,i,j,false);
+        const FColor alpha2 = alpha * std::pow((z0 - zp).normalized() * normal,4) * cos_ / dp_square;
+
+        get_subpath(alpha2,p_sigma,cos_,Ray(z0,omega),eye_sub_path_vertex,scene,i,j,false);
 
     }
 
-    /*static*/ void get_subpath(FColor alpha,R previous_P_sigma,R previous_cos,Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,Scene &scene,const int i,const int j,const bool is_light_tracing){
+    /*static*/ void get_subpath(FColor alpha,R previous_p_sigma,R previous_cos,Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,Scene &scene,const int i,const int j,const bool is_light_tracing){
         int depth = 0;
-        const int min_depth = 2;
-        const int max_depth = 8;
+        const int min_depth = 4;
+        const int max_depth = 16;
         while(true) {
             
             Intersection_info *intersection_info = get_intersection_of_nearest(ray,scene);
@@ -155,17 +157,19 @@ struct Bdpt {
 		    const Intersection_point *intersection = intersection_info->intersection_point;
 		    const Material material = intersection->material;
 		    const Vec3 normal = ((ray.direction * intersection->normal < 0.0) ? 1.0 : -1.0) * intersection->normal;
-            const R dist2 = intersection->distance * intersection->distance;
+            const R dist_square = intersection->distance * intersection->distance;
+            const R cos_ = normal * (-ray.direction);
 
-            R rev_P;
+            Vertex_data_for_bdpt v(
+                intersection->position
+                ,intersection->normal
+                ,material
+                ,alpha
+                ,1//暫定
+                ,1//暫定
+            );//頂点データ
 
-            switch (material.type) {
-            case MT_DEFAULT : {
-                rev_P = M_1_PI * ((-ray.direction) * normal) * previous_cos / dist2;
-            }break;
-            default : ;
-
-            }
+            const R rev_P = p_area_measure(v,-ray.direction,cos_,previous_cos,dist_square);//逆向きの確率密度（面積測度）を計算
 
             if(is_light_tracing) {
                 sub_path_vertex[sub_path_vertex.size() - 1].p_eye = rev_P;
@@ -173,47 +177,40 @@ struct Bdpt {
                 sub_path_vertex[sub_path_vertex.size() - 1].p_light = rev_P;
             }
 
-            R P;
+            const R P = previous_p_sigma * cos_ / dist_square;//p_area_measure(sub_path_vertex[sub_path_vertex.size() - 1],ray.direction,previous_cos,cos_,dist_square);
+            //順方向の確率密度（面積測度)を計算
 
-            switch (material.type) {
-            case MT_DEFAULT : {
-                P = previous_P_sigma * ((-ray.direction) * normal) / dist2;
-            }break;
-            default : ;
-
-            }
-
-            R pl,pe;
             if(is_light_tracing) {
-                pl = P;pe = 1;
+                v.p_light = P;
             }else {
-                pl = 1;pe = P;
+                v.p_eye = P;
             }
-            sub_path_vertex.push_back(Vertex_data_for_bdpt(
-                intersection->position
-                ,normal
-                ,material.type
-                ,alpha
-                ,pl
-                ,pe
-            ));
+
+            sub_path_vertex.push_back(v);
 
             if(is_light_tracing) {
                 ;
             }else {
-                //const Shape *shape = intersection_info->shape;
+                const Shape *shape = intersection_info->shape;
 
-                /*if(shape->light_id >= 0) {//衝突したのが光源だったら
+                if(shape->light_id >= 0) {//衝突したのが光源だったら、s=0の処理を行う
                     const int id = shape->light_id;
-                    const Light_source *light = scene.lights[id];
 
-                    const int store = pdf_y0;//weight計算の光源側のpdfが変わるので記憶しておく
-                    pdf_y0 = (light_P[i + 1] - light_P[i]) / shape->get_S();
-                }*/
+                    std::vector<Vertex_data_for_bdpt> x;
+
+                    for(int i = sub_path_vertex.size() - 1;i >= 0;i--) {
+                        x.push_back(sub_path_vertex[i]);
+                    }
+
+                    x[0].p_light = (light_P[id + 1] - light_P[id]) / shape->get_S();
+
+                    scene.camera->img_e[i * scene.camera->pixel_w + j] += material.Le * x[x.size() - 1].alpha * get_weight(x,0,x.size());
+                }
             }
 
-            Vec3 omega;
+            Vec3 omega;//次のサンプリング
 
+            //omegaに次のサンプリングの方向のセット,previous_p_sigmaの更新,previous_cosの更新,alphaの更新を行う
             switch (material.type){
 
             case MT_DEFAULT: {
@@ -231,8 +228,13 @@ struct Bdpt {
     				v * std::sin(u1) * u3 +
     				normal * std::sqrt(1 - u2);
 
+
                 //sub_path_vertex.push_back(Vertex_data_for_bdpt(intersection->position,normal,material));
                 //sub_path_weight.push_back(material.kd * *(sub_path_weight.end() - 1) / P);
+
+                previous_cos = omega * normal;
+
+                previous_p_sigma = previous_cos * M_1_PI;
 
                 alpha *= material.kd;
 
@@ -259,10 +261,32 @@ struct Bdpt {
 
             alpha = alpha / PRR;
 
+            ray = Ray(intersection->position,omega);
+
             depth++;
 
             delete intersection_info;
         }
+    }
+
+    //x1からx2を選ぶ面積測度の確率密度PA(x2)を求める。ただし点x2はx1からomega12方向にレイを飛ばした時最初に衝突する点
+    inline R p_area_measure(const Vertex_data_for_bdpt &x1
+                            ,const Vec3 &omega12//x1→x2の方向ベクトル(正規化されたもの)
+                            ,const R cos1//x1の法線とx1→x2方向がなす角のcos
+                            ,const R cos2//x2の法線とx2→x1方向がなす角のcos
+                            ,const R dist_square) //x1とx2の距離の二乗
+                            {
+        R P = 1;
+
+        switch (x1.bsdf.type) {
+        case MT_DEFAULT : {
+            P = M_1_PI * cos1 * cos2 / dist_square;
+        }break;
+        default : ;
+
+        }
+
+        return P;
     }
 
     /*static*/ inline Intersection_info* get_intersection_of_nearest(const Ray &ray,const Scene &scene) {
@@ -289,144 +313,98 @@ struct Bdpt {
 
     /*static*/ void merge(Scene &scene,const int i,const int j) {
         for(int s = 1;s <= light_sub_path_vertex.size();s++) {
-            for(int t = 1;t <= eye_sub_path_vertex.size();t++) {
+            for(int t = 2;t <= eye_sub_path_vertex.size();t++) {
                 Vertex_data_for_bdpt y = light_sub_path_vertex[s - 1];
                 Vertex_data_for_bdpt z = eye_sub_path_vertex[t - 1];
-                FColor fy,fz;
 
-                switch (y.bsdf.type) {
+                if(y.normal * z.normal < 0.0) continue;//裏向き
 
-                case MT_DEFAULT : {
-                    fy = y.bsdf.kd / 3.1415926535;
-                }break;
-                default : {
-                    ;
-                }
-                }
+                const Vec3 omega_y_in = (s > 1) ? (light_sub_path_vertex[s - 2].position - y.position).normalized() : Vec3(0,0,0);
+                const Vec3 omega_y_out = (z.position - y.position).normalized();
 
-                switch (z.bsdf.type) {
+                const FColor fy = calc_bsdf(y,omega_y_in,omega_y_out);
 
-                case MT_DEFAULT : {
-                    fz = z.bsdf.kd / 3.1415926535;
-                }break;
-                default : {
-                    ;
-                }
-                }
+                const Vec3 omega_z_in = -omega_y_out;
+                const Vec3 omega_z_out = (t > 1) ? (eye_sub_path_vertex[t - 2].position - z.position).normalized() : Vec3(0,0,0);
 
-                const FColor c = fy * fz * G(y,z);
+                const FColor fz = calc_bsdf(z,omega_z_in,omega_z_out);
+
+                const R cos_y = y.normal * omega_y_out;
+                const R cos_z = z.normal * omega_z_in;
+
+                const R dist_square = (y.position - z.position).abs_square();
+
+                const FColor c = fy * fz * (cos_y * cos_z / dist_square);
 
                 std::vector<Vertex_data_for_bdpt> x;
 
                 for(int i = 0;i < s;i++) x.push_back(light_sub_path_vertex[i]);
                 for(int i = t - 1;i >= 0;i--) x.push_back(eye_sub_path_vertex[i]);
 
+                x[s - 1].p_eye = p_area_measure(z,omega_z_in,cos_z,cos_y,dist_square);
+                x[s].p_light = p_area_measure(y,omega_y_out,cos_y,cos_z,dist_square);
+
                 const R w = get_weight(x,s,t);
 
-                if(y.normal * z.normal >= 0 && is_shadow(scene,y.position,z.position)) {
+                if(is_shadow(scene,y.position,z.position)) {
                     continue;
                 }
 
                 if(t <= 1) {
                     ;
                 }else {
-                    scene.camera->img_e[i * scene.camera->pixel_w + j] += w * light_sub_path_weight[s] * c * eye_sub_path_weight[s];
+                    scene.camera->img_e[i * scene.camera->pixel_w + j] += w * light_sub_path_vertex[s - 1].alpha * c * eye_sub_path_vertex[t - 1].alpha;
                 }
             }
         }
     }
 
-    /*static*/ inline R G(const Vertex_data_for_bdpt &x,const Vertex_data_for_bdpt &y) {
-        Vec3 omega = (x.position - y.position).normalized();
+    inline FColor calc_bsdf(const Vertex_data_for_bdpt &x,const Vec3 &omega_in,const Vec3 &omega_out) {
+        FColor ret;
+        switch (x.bsdf.type) {
 
-        return std::abs(omega * x.normal) * std::abs(omega * y.normal) / (x.position - y.position).abs_square();
+        case MT_DEFAULT : {
+            ret = x.bsdf.kd * M_1_PI;
+        }break;
+        default : {
+        ;
+        }
+        }
+        return ret;
     }
 
     /*static*/ inline R get_weight(const std::vector<Vertex_data_for_bdpt> &path_vertex,const int s,const int t) {
         const int k = (int)path_vertex.size() - 1;
 
-        R *Gi = new R[k];
-
-        for(int i = 0;i < k;i++) {
-            Gi[i] = G(path_vertex[i + 1],path_vertex[i]);
-        }
-
         R *P = new R[k + 1];//Pi = pi+1 / pi (i=0,1,...,k)
 
-        R denominator,numerator;
-        for(int i = 1;i < k;i++) {
-
-            switch (path_vertex[i + 1].bsdf.type) {
-            case MT_DEFAULT : {
-                denominator = Gi[i];
-            }break;
-            default : {
-                ;
-            }
-            }
-
-            switch (path_vertex[i - 1].bsdf.type) {
-            case MT_DEFAULT : {
-                numerator = Gi[i - 1];
-            }break;
-            default : {
-
-            }
-            }
-
-            P[i] = numerator / denominator;
-
-
+        for(int i = 0;i <= k;i++) {
+            P[i] = path_vertex[i].p_light / path_vertex[i].p_eye;
         }
-
-
-        switch (path_vertex[1].bsdf.type) {
-        case MT_DEFAULT : {
-            denominator = Gi[0];
-        }break;
-        default : {
-            ;
-        }
-        }
-
-        numerator = pdf_y0;
-
-        P[0] = numerator / denominator;
-
-        switch (path_vertex[k - 1].bsdf.type) {
-        case MT_DEFAULT : {
-            numerator = Gi[k - 1];
-        }break;
-        default : {
-            ;
-        }
-        }
-
-        denominator = pdf_z0;
-
-        P[k] = numerator / denominator;
 
         R w = 1;
+
         R m = 1;
 
         for(int i = s - 1;i >= 0;i--) {
-            m /= P[i];
-            w += m * m;
-        }
-        m = 1;
-        for(int i = s + 1;i <= k;i++) {
             m *= P[i];
             w += m * m;
         }
 
-        delete[] Gi;
+        m = 1;
+
+        for(int i = s + 1;i <= k - 2/*-2はt=0,1を除外*/;i++) {
+            m *= P[i];
+            w += m * m;
+        }
+
         delete[] P;
 
         return 1 / w;
     }
 
     /*static*/ inline bool is_shadow(const Scene &scene,const Vec3 &y,const Vec3 &z) {
-		const R max_t = (y - z).abs() - EPS;
+		const R max_t = (y - z).abs() - 0.1;
 		for(Shape *shape : scene.shapes){
 			Intersection_point *intersection = shape->get_intersection(Ray(y,z - y));
 			if(intersection != nullptr && max_t > intersection->distance ){

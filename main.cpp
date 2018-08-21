@@ -33,7 +33,7 @@ int main() {
 
     Bdpt bdpt;
 
-    bdpt.bdpt(scene,1);
+    bdpt.bdpt(scene,16);
 
     scene.camera->out_ppm_stdio();
 

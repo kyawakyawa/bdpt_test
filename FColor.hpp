@@ -2,7 +2,7 @@
 #include<iostream>
 #include<cmath>
 
-typedef float R;
+typedef double R;
 
 struct FColor{
     R red;
