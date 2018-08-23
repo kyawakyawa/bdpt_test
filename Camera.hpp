@@ -51,8 +51,8 @@ struct Camera {
 
     ,dist_lens_object_plane(focus_distance)
 
-    ,pdf_i(1.0 / (height_of_sensor * width_of_sensor / pixel_h / pixel_w)),pdf_l(1.0 / M_PI / lens_radius / lens_radius)
-    ,sensibility(1 * pdf_i) {};
+    ,pdf_i(1.0 / (height_of_sensor * width_of_sensor / (R)(pixel_h * pixel_w))),pdf_l(1.0 / M_PI / lens_radius / lens_radius)
+    ,sensibility(28 * pdf_i) {};
 
     void init() {
         for(int i = 0;i < pixel_h * pixel_w;i++)img[i] = img_l[i] = img_e[i] = FColor(0,0,0);
