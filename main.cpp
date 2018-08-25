@@ -1,7 +1,7 @@
 #include <cmath>
 #include <iostream>
 #include "Bdpt.hpp"
-#include "Pt.hpp"
+#include "Pt2.hpp"
 #include "Sphere.hpp"
 
 int main() {
@@ -32,16 +32,16 @@ int main() {
     scene.add(new Sphere(Vec3( 50, 1e5, 81.6),1e5,Material(FColor(0.75,0.75,0.75))));
     scene.add(new Sphere(Vec3( 50, -1e5+81.6, 81.6),1e5,Material(FColor(0.75,0.75,0.75))));
     scene.add(new Sphere(Vec3( 50, 20 ,50),20,Material(FColor(0.25,0.75,0.25))));
-    scene.add(new Sphere(Vec3( 19, 16.5 ,25),16.5,Material(MT_PERFECT_REF)));
-    scene.add(new Sphere(Vec3( 77, 16.5 ,78),16.5,Material(MT_REFRACTION)));
+    //scene.add(new Sphere(Vec3( 19, 16.5 ,25),16.5,Material(MT_PERFECT_REF)));
+    //scene.add(new Sphere(Vec3( 77, 16.5 ,78),16.5,Material(MT_REFRACTION)));
 
-    //Bdpt bdpt;
+    Bdpt bdpt;
 
-    //bdpt.bdpt(scene,16);
+    bdpt.bdpt(scene,4);
 
-    Pt pt;
+    //Pt pt;
 
-    pt.pt(scene,2048);
+    //pt.pt(scene,64);
 
     scene.camera->out_ppm_stdio();
 

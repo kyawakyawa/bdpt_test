@@ -30,7 +30,7 @@ struct Pt {
         const Vec3 z0 = scene.camera->sample_one_point_on_lens();
         const Vec3 &normal = scene.camera->dir;
 
-        //const R p_A_z0 = scene.camera->pdf_l;
+        const R p_A_z0 = scene.camera->pdf_l;
 
         const R W = scene.camera->sensibility;
 
@@ -43,8 +43,8 @@ struct Pt {
 
         const Vec3 omega = (z1 - z0).normalized();
 
-        //const R cos_ = omega * normal;
-        //const R dp_square = scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens;
+        const R cos_ = omega * normal;
+        const R dp_square = scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens;
 
         //const R p_sigma = dp_square * scene.camera->pdf_i / std::pow(cos_,4);
 
@@ -56,11 +56,10 @@ struct Pt {
         //int previous_p_sigma = p_sigma;
 
         Ray ray(z0,omega);
-
-        const R cos_ = (z0 - zp).normalized() * normal;
-
         // alpha *= std::pow((z0 - zp).normalized() * normal,4) * cos_ / dp_square;
-        FColor alpha = FColor(W,W,W) * cos_ * cos_ / (z0 - zp).abs_square() / scene.camera->pdf_i / scene.camera->pdf_l;
+
+        FColor alpha = FColor(W,W,W) * std::pow((z0 - zp).normalized() * normal,4) * cos_ / dp_square / scene.camera->pdf_i / p_A_z0;
+
 
         while(true) {
 

@@ -93,7 +93,7 @@ struct Bdpt {
 
                 R cos_ = light_info->normal * omega;
 
-                get_subpath(M_PI * alpha,cos_ * M_1_PI,cos_,Ray(light_info->point,omega),light_sub_path_vertex,scene,i,j,true);//拡散放射のときはα1=α2?
+                get_subpath(M_PI * alpha,cos_ * M_1_PI,cos_,Ray(light_info->point,omega),light_sub_path_vertex,scene,i,j,true);
 
                 delete light_info;
                 break;
@@ -127,7 +127,7 @@ struct Bdpt {
         const Vec3 zp = scene.camera->sample_one_point_on_image_sensor(i,j);
         const Vec3 e = (scene.camera->position - zp).normalized();
 
-        const Vec3 z1 = scene.camera->position + e * scene.camera->dist_lens_object_plane / (e * scene.camera->dir);
+        const Vec3 z1 = scene.camera->position + e * (scene.camera->dist_lens_object_plane / (e * scene.camera->dir));
 
         const Vec3 omega = (z1 - z0).normalized();
 
@@ -136,7 +136,7 @@ struct Bdpt {
 
         const R p_sigma = dp_square * scene.camera->pdf_i / std::pow(cos_,4);
 
-        const FColor alpha2 = alpha * std::pow((z0 - zp).normalized() * normal,4) * cos_ / dp_square;
+        const FColor alpha2 = alpha * std::pow((z0 - zp).normalized() * normal,4) * cos_ / dp_square / scene.camera->pdf_i;
 
         get_subpath(alpha2,p_sigma,cos_,Ray(z0,omega),eye_sub_path_vertex,scene,i,j,false);
 
@@ -144,8 +144,8 @@ struct Bdpt {
 
     /*static*/ void get_subpath(FColor alpha,R previous_p_sigma,R previous_cos,Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,Scene &scene,const int i,const int j,const bool is_light_tracing){
         int depth = 0;
-        const int min_depth = 4;
-        const int max_depth = 16;
+        const int min_depth = 8;
+        const int max_depth = 100000;
         while(true) {
             
             Intersection_info *intersection_info = get_intersection_of_nearest(ray,scene);
@@ -202,9 +202,9 @@ struct Bdpt {
                         x.push_back(sub_path_vertex[i]);
                     }
 
-                    x[0].p_light = (light_P[id + 1] - light_P[id]) / shape->get_S();
+                    x[0].p_light = (light_P[id + 1] - light_P[id]) / shape->get_S();//ポリゴンが光源の時まずい
 
-                    scene.camera->img_e[i * scene.camera->pixel_w + j] += material.Le * x[x.size() - 1].alpha * get_weight(x,0,x.size());
+                    scene.camera->img_e[i * scene.camera->pixel_w + j] += material.Le * x[0].alpha * get_weight(x,0,x.size());
                 }
             }
 
@@ -215,7 +215,7 @@ struct Bdpt {
 
             case MT_DEFAULT: {
     			Vec3 u;
-    			if (std::abs(normal.x) > 1e-6) // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
+    			if (std::abs(normal.x) > EPS) // ベクトルwと直交するベクトルを作る。w.xが0に近い場合とそうでない場合とで使うベクトルを変える。
     				u = (cross(Vec3(0.0, 1.0, 0.0), normal)).normalized();
     			else
     				u = (cross(Vec3(1.0, 0.0, 0.0), normal)).normalized();
@@ -244,7 +244,7 @@ struct Bdpt {
             }break;
             }
 
-            R PRR = std::min((R)1,std::max(std::max(material.kd.red,material.kd.green),material.kd.blue));
+            R PRR = std::max(0.00001/*kdが0の時の対策*/,std::min((R)1,std::max(std::max(material.kd.red,material.kd.green),material.kd.blue)));
 
     		if(depth < min_depth)
 			    PRR = 1.0;
@@ -346,9 +346,15 @@ struct Bdpt {
 
                 const R w = get_weight(x,s,t);
 
-                if(is_shadow(scene,y.position,z.position)) {
+                Ray ray(y.position,z.position - y.position);
+
+                Intersection_info *intersection = get_intersection_of_nearest(ray,scene);
+
+                if(intersection != nullptr && (intersection->intersection_point->position - z.position).abs() >= EPS) {
+                    delete intersection;
                     continue;
                 }
+                delete intersection;
 
                 if(t <= 1) {
                     ;
@@ -403,8 +409,8 @@ struct Bdpt {
         return 1 / w;
     }
 
-    /*static*/ inline bool is_shadow(const Scene &scene,const Vec3 &y,const Vec3 &z) {
-		const R max_t = (y - z).abs() - 0.1;
+    /*static*/ /*inline bool is_shadow(const Scene &scene,const Vec3 &y,const Vec3 &z) {
+		const R max_t = (y - z).abs() - EPS;
 		for(Shape *shape : scene.shapes){
 			Intersection_point *intersection = shape->get_intersection(Ray(y,z - y));
 			if(intersection != nullptr && max_t > intersection->distance ){
@@ -414,7 +420,7 @@ struct Bdpt {
 			delete intersection;
 		}
 		return false;
-    }
+    }*/
 
 	/*static*/ void set_light(Scene &scene) {
 		if(scene.lights.size() < 1)

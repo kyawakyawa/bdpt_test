@@ -119,9 +119,23 @@ struct Camera {
         std::printf("P3\n%d %d\n255\n",pixel_w,pixel_h);
         //for(int i = 0;i < pixel_h * pixel_w;i++) 
             //img[i].print255();
+        int c = 0;
         for(int i = pixel_h - 1;i >= 0;i--) 
-            for(int j = pixel_w - 1;j >= 0;j--) 
-                img[i * pixel_w + j].print255();
+            for(int j = pixel_w - 1;j >= 0;j--) {
+                const FColor &pixel = img[i * pixel_w + j];
+                if(std::isnan(pixel.red) || std::isnan(pixel.green) || std::isnan(pixel.blue)) {
+                    std::cerr << "found nan" << std::endl;
+                }
+                if(std::isinf(pixel.red) || std::isinf(pixel.green) || std::isinf(pixel.blue)) {
+                    std::cerr << "found inf" << std::endl;
+                }
+                if(std::abs(pixel.red) < 1e-9 && std::abs(pixel.green) < 1e-9 && std::abs(pixel.blue) < 1e-9) {
+                    c++;
+                    fprintf(stderr,"%.20f %.20f %.20f\n",pixel.red,pixel.green,pixel.blue);
+                }
+                pixel.print255();
+            }
+        std::cerr << "zero " << c << std::endl;
     }
 
     ~Camera() {
