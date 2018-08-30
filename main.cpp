@@ -2,6 +2,7 @@
 #include <iostream>
 #include "Bdpt.hpp"
 #include "Pt2.hpp"
+#include "Nee.hpp"
 #include "Sphere.hpp"
 
 int main() {
@@ -35,13 +36,17 @@ int main() {
     //scene.add(new Sphere(Vec3( 19, 16.5 ,25),16.5,Material(MT_PERFECT_REF)));
     //scene.add(new Sphere(Vec3( 77, 16.5 ,78),16.5,Material(MT_REFRACTION)));
 
-    Bdpt bdpt;
+    //Bdpt bdpt;
 
-    bdpt.bdpt(scene,4);
+    //bdpt.bdpt(scene,4);
 
     //Pt pt;
 
     //pt.pt(scene,64);
+
+    Nee nee;
+
+    nee.nee(scene,1024);
 
     scene.camera->out_ppm_stdio();
 
