@@ -143,22 +143,42 @@ struct Bdpt {
     }
 
     /*static*/ void get_subpath(FColor alpha,R previous_p_sigma,R previous_cos,Ray ray,std::vector<Vertex_data_for_bdpt> &sub_path_vertex,Scene &scene,const int i,const int j,const bool is_light_tracing){
-        int depth = 0;
-        const int min_depth = 8;
-        const int max_depth = 100000;
         while(true) {
             
             Intersection_info *intersection_info = get_intersection_of_nearest(ray,scene);
 
-		    if(intersection_info == nullptr){//物体が存在しない
-                break;
-		    }
-		
 		    const Intersection_point *intersection = intersection_info->intersection_point;
 		    const Material material = intersection->material;
 		    const Vec3 normal = ((ray.direction * intersection->normal < 0.0) ? 1.0 : -1.0) * intersection->normal;
             const R dist_square = intersection->distance * intersection->distance;
             const R cos_ = normal * (-ray.direction);
+
+            /*if(is_light_tracing) {
+
+                int i = 0,j = 0;
+                const R lens_t = scene.camera->get_intersection_with_lens(ray,i,j);
+                if(lens_t > EPS && (intersection_info == nullptr || intersection->distance - lens_t > EPS))
+                    std::cerr << i << " " << j << std::endl;
+
+                if(lens_t > EPS && (intersection_info == nullptr || intersection->distance - lens_t > EPS)) {
+                    scene.camera->img_l[i * scene.camera->pixel_w + j] = FColor(1,0,0);//FColor(depth == 0,0,0) ;FColor(std::max(1.0 - depth * 0.1,0.0),std::min(depth * 0.1,1.0),0);
+                    break;
+                }
+
+            }*/
+
+		    if(intersection_info == nullptr){//物体が存在しない
+                break;
+		    }
+
+            const R PRR = (intersection_info->shape->light_id >= 0 ) ? 1 : std::min((R)1,std::max(std::max(material.kd.red,material.kd.green),material.kd.blue));
+
+    		if(PRR < Random::rando()){
+			    delete intersection_info;
+                break;
+		    }
+
+            alpha = alpha / PRR;
 
             Vertex_data_for_bdpt v(
                 intersection->position
@@ -188,9 +208,7 @@ struct Bdpt {
 
             sub_path_vertex.push_back(v);
 
-            if(is_light_tracing) {
-                ;
-            }else {
+            if(!is_light_tracing) {//パストレだったら
                 const Shape *shape = intersection_info->shape;
 
                 if(shape->light_id >= 0) {//衝突したのが光源だったら、s=0の処理を行う
@@ -244,28 +262,10 @@ struct Bdpt {
             }break;
             }
 
-            R PRR = std::max(0.00001/*kdが0の時の対策*/,std::min((R)1,std::max(std::max(material.kd.red,material.kd.green),material.kd.blue)));
-
-    		if(depth < min_depth)
-			    PRR = 1.0;
-		
-		    if (depth >= max_depth)//最大値で大幅に確率を下げる
-			    PRR *= pow(0.5, depth - max_depth);
-		
-		
-
-    		if(PRR < Random::rando()){
-			    delete intersection_info;
-                break;
-		    }
-
-            alpha = alpha / PRR;
-
             ray = Ray(intersection->position,omega);
 
-            depth++;
-
             delete intersection_info;
+            break;
         }
     }
 
