@@ -208,7 +208,7 @@ struct Bdpt {
 
             sub_path_vertex.push_back(v);
 
-            /*if(!is_light_tracing) {//パストレだったら
+            if(!is_light_tracing) {//パストレだったら
                 const Shape *shape = intersection_info->shape;
 
                 if(shape->light_id >= 0) {//衝突したのが光源だったら、s=0の処理を行う
@@ -225,7 +225,7 @@ struct Bdpt {
                     scene.camera->img_e[i * scene.camera->pixel_w + j] += material.Le * x[0].alpha * get_weight(x,0,x.size());
                     break;
                 }
-            }*/
+            }
 
             Vec3 omega;//次のサンプリング
 
@@ -348,6 +348,16 @@ struct Bdpt {
 
                 const R w = get_weight(x,s,t);
 
+                if(std::isnan(w)) {
+                    std::cerr << "err! mis weight nan" << std::endl;
+                    continue;
+                }
+
+                if(std::isinf(w)) {
+                    std::cerr << "err! mis weight inf" << std::endl;
+                    continue;
+                }
+
                 if(is_shadow(scene,y.position,z.position)) {
                     continue;
                 }
@@ -384,21 +394,23 @@ struct Bdpt {
             P[i] = path_vertex[i].p_light / path_vertex[i].p_eye;
         }
 
-        R w = 1;
+        R w = 0;
 
         R m = 1;
 
-        for(int i = s - 1;i >= 1;i--) {
+        for(int i = s - 1;i >= 0;i--) {
             m /= P[i];
             w += m * m;
         }
 
         m = 1;
 
-        for(int i = s + 1;i <= k - 2/*-2はt=0,1を除外*/;i++) {
+        for(int i = s;i <= k - 2/*-2はt=0,1を除外*/;i++) {
             m *= P[i];
             w += m * m;
         }
+
+        w += 1.0;
 
         delete[] P;
 
