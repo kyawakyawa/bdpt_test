@@ -32,6 +32,8 @@ struct Camera {
     const R lens_radius;//レンズの半径
     const R f_number;
 
+    const R width_of_object_plane;
+    const R height_of_object_plane;
     const R dist_lens_object_plane;
     const Vec3 object_center;
 
@@ -52,6 +54,8 @@ struct Camera {
 
     ,focal_length(focus_distance * dist_sensor_lens / (focus_distance + dist_sensor_lens)),lens_radius(focal_length / f_number_ / 2.0),f_number(f_number_)
 
+    ,width_of_object_plane(width_of_sensor * focus_distance / dist_sensor_lens)
+    ,height_of_object_plane(height_of_sensor * focus_distance / dist_sensor_lens)
     ,dist_lens_object_plane(focus_distance)
     ,object_center(dist_lens_object_plane * dir + position)
 
@@ -62,29 +66,53 @@ struct Camera {
         for(int i = 0;i < pixel_h * pixel_w;i++)img[i] = img_l[i] = img_e[i] = FColor(0,0,0);
     }
 
-    R get_intersection_with_lens(const Ray &ray,int &i,int &j) {
+    R get_intersection_with_lens(const Ray &ray,Vec3 &xp,int &i,int &j) {
         const R lens_t = intersection_plane(ray,position);
 
         if(lens_t < EPS || (ray.start + ray.direction * lens_t - position).abs() > lens_radius){ //視線の後ろまたはレンズの外側
             return -1;
         }
 
-        const R obj_t = intersection_plane(ray,position + dir * dist_lens_object_plane);
+        const R obj_t = fetch_object_plane_ij(ray,i,j);
+
+        if(obj_t <= -INF) { //裏側から当たる(これは無い？)もしくはオブジェクトプレーンの外側
+            return -1;
+        }
+
+        const Vec3 obj_position = ray.start + ray.direction * obj_t;
+
+        const Vec3 omega_obj_lens_center = (position - obj_position).normalized();
+
+        const R cos_ = -(omega_obj_lens_center * dir);
+
+        xp = position + omega_obj_lens_center * (dist_sensor_lens / cos_);
+
+        return lens_t;
+    }
+
+    R fetch_object_plane_ij(const Ray &ray,int &i,int &j) {//距離を返す
+        const R obj_t = intersection_plane(ray,object_center);
+
+        if(obj_t <= -INF) {//このif文に入ることは無い?
+            return obj_t;
+        } 
 
         const Vec3 position_on_obj = ray.start + ray.direction * obj_t;
 
         const Vec3 position_on_uv = position_on_obj - object_center;//uv座標上の位置ベクトル
 
-        const R u = position_on_uv * obj_x / width_of_sensor;//u成分を得る
-        const R v = position_on_uv * obj_y / height_of_sensor;//v成分を得る
+        const R u = (position_on_uv * obj_x) / width_of_object_plane;//u成分を得る
+        const R v = (position_on_uv * obj_y) / height_of_object_plane;//v成分を得る
 
         if(u < -0.5 || u > 0.5 || v < -0.5 || v > 0.5) {//オブジェクトプレーンの外
-            return -1;
+            return INF * -2.0;
         }
 
         j = ((R)0.5 + u) * pixel_w;
         i = ((R)0.5 + v) * pixel_h;
-        return lens_t;
+
+        return obj_t;
+ 
     }
 
     R  intersection_plane(const Ray &ray,const Vec3 &position) {
@@ -102,15 +130,12 @@ struct Camera {
 		const Vec3 s = ray.start - (s2 + position);
 
 		if(d * dir == 0)//レイと平面が並行
-			return -1;;
+			return INF * -2.0;
 
 		const R t = -(s * dir) / (d * dir);
 
-		if(t < EPS)//平面が視線の後側
-			return -1;
-
-        if(d * dir > 0)//レンズの裏側から当たる
-            return -1;
+        if(d * dir > 0)//平面の裏側から当たる
+            return INF * -2.0;
 
         return t;
     }

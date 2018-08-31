@@ -48,7 +48,8 @@ struct Bdpt {
         for(int i = 0;i < scene.camera->pixel_h;i++) {
             for(int j = 0;j < scene.camera->pixel_w;j++) {
                 scene.camera->img[i * scene.camera->pixel_w + j] = 
-                    (scene.camera->img_e[i * scene.camera->pixel_w + j] + scene.camera->img_l[i * scene.camera->pixel_w + j]) / samples;
+                    (scene.camera->img_l[i * scene.camera->pixel_w + j] / (R)(samples * scene.camera->pixel_h * scene.camera->pixel_w))
+                    + (scene.camera->img_e[i * scene.camera->pixel_w + j] / (R)samples);
             }
         }
     }
@@ -313,7 +314,7 @@ struct Bdpt {
 
     /*static*/ void merge(Scene &scene,const int i,const int j) {
         for(int s = 1;s <= light_sub_path_vertex.size();s++) {
-            for(int t = 2;t <= eye_sub_path_vertex.size();t++) {
+            for(int t = 1;t <= eye_sub_path_vertex.size();t++) {
                 Vertex_data_for_bdpt y = light_sub_path_vertex[s - 1];
                 Vertex_data_for_bdpt z = eye_sub_path_vertex[t - 1];
 
@@ -332,7 +333,29 @@ struct Bdpt {
 
                 const FColor fy = calc_bsdf(y,omega_y_in,omega_y_out);
 
-                const FColor fz = calc_bsdf(z,omega_z_in,omega_z_out);
+                FColor fz;
+                int i_dash = 0,j_dash = 0;
+
+                if(t == 1) {
+                    Ray ray(y.position,omega_y_out);
+
+                    Vec3 zp;
+
+                    const R lens_t = scene.camera->get_intersection_with_lens(ray,zp,i_dash,j_dash);
+
+                    if(lens_t < EPS){//イメージセンサーに当たらない
+                        continue;
+                    }
+
+                    const R cos_sensor = (z.position - zp).normalized() * scene.camera->dir;
+                    const R cos_object_plane = (y.position - z.position).normalized() * scene.camera->dir;
+
+                    fz = FColor(1.0,1.0,1.0) * std::pow(cos_sensor / cos_object_plane,4.0);
+
+                }else {
+                    fz = calc_bsdf(z,omega_z_in,omega_z_out);
+                }
+
 
                 const R dist_square = (y.position - z.position).abs_square();
 
@@ -363,7 +386,7 @@ struct Bdpt {
                 }
 
                 if(t <= 1) {
-                    ;
+                    scene.camera->img_l[i_dash * scene.camera->pixel_w + j_dash] += w * y.alpha * c * z.alpha;
                 }else {
                     scene.camera->img_e[i * scene.camera->pixel_w + j] += w * y.alpha * c * z.alpha;
                 }
@@ -405,7 +428,7 @@ struct Bdpt {
 
         m = 1;
 
-        for(int i = s;i <= k - 2/*-2はt=0,1を除外*/;i++) {
+        for(int i = s;i <= k - 1;i++) {
             m *= P[i];
             w += m * m;
         }
