@@ -182,7 +182,7 @@ struct Bdpt {
 
             Vertex_data_for_bdpt v(
                 intersection->position
-                ,intersection->normal
+                ,normal
                 ,material
                 ,alpha
                 ,1//暫定
@@ -208,7 +208,7 @@ struct Bdpt {
 
             sub_path_vertex.push_back(v);
 
-            if(!is_light_tracing) {//パストレだったら
+            /*if(!is_light_tracing) {//パストレだったら
                 const Shape *shape = intersection_info->shape;
 
                 if(shape->light_id >= 0) {//衝突したのが光源だったら、s=0の処理を行う
@@ -223,8 +223,9 @@ struct Bdpt {
                     x[0].p_light = (light_P[id + 1] - light_P[id]) / shape->get_S();//ポリゴンが光源の時まずい
 
                     scene.camera->img_e[i * scene.camera->pixel_w + j] += material.Le * x[0].alpha * get_weight(x,0,x.size());
+                    break;
                 }
-            }
+            }*/
 
             Vec3 omega;//次のサンプリング
 
@@ -265,7 +266,6 @@ struct Bdpt {
             ray = Ray(intersection->position,omega);
 
             delete intersection_info;
-            break;
         }
     }
 
@@ -317,20 +317,22 @@ struct Bdpt {
                 Vertex_data_for_bdpt y = light_sub_path_vertex[s - 1];
                 Vertex_data_for_bdpt z = eye_sub_path_vertex[t - 1];
 
-                if(y.normal * z.normal < 0.0) continue;//裏向き
-
                 const Vec3 omega_y_in = (s > 1) ? (light_sub_path_vertex[s - 2].position - y.position).normalized() : Vec3(0,0,0);
                 const Vec3 omega_y_out = (z.position - y.position).normalized();
-
-                const FColor fy = calc_bsdf(y,omega_y_in,omega_y_out);
 
                 const Vec3 omega_z_in = -omega_y_out;
                 const Vec3 omega_z_out = (t > 1) ? (eye_sub_path_vertex[t - 2].position - z.position).normalized() : Vec3(0,0,0);
 
-                const FColor fz = calc_bsdf(z,omega_z_in,omega_z_out);
-
                 const R cos_y = y.normal * omega_y_out;
                 const R cos_z = z.normal * omega_z_in;
+
+                if(cos_y < (R)0.0 || cos_z < (R)0.0) {
+                    continue;
+                }
+
+                const FColor fy = calc_bsdf(y,omega_y_in,omega_y_out);
+
+                const FColor fz = calc_bsdf(z,omega_z_in,omega_z_out);
 
                 const R dist_square = (y.position - z.position).abs_square();
 
@@ -346,20 +348,14 @@ struct Bdpt {
 
                 const R w = get_weight(x,s,t);
 
-                Ray ray(y.position,z.position - y.position);
-
-                Intersection_info *intersection = get_intersection_of_nearest(ray,scene);
-
-                if(intersection != nullptr && (intersection->intersection_point->position - z.position).abs() >= EPS) {
-                    delete intersection;
+                if(is_shadow(scene,y.position,z.position)) {
                     continue;
                 }
-                delete intersection;
 
                 if(t <= 1) {
                     ;
                 }else {
-                    scene.camera->img_e[i * scene.camera->pixel_w + j] += w * light_sub_path_vertex[s - 1].alpha * c * eye_sub_path_vertex[t - 1].alpha;
+                    scene.camera->img_e[i * scene.camera->pixel_w + j] += w * y.alpha * c * z.alpha;
                 }
             }
         }
@@ -373,7 +369,7 @@ struct Bdpt {
             ret = x.bsdf.kd * M_1_PI;
         }break;
         default : {
-        ;
+            std::cerr << "not found bsdf" << std::endl;
         }
         }
         return ret;
@@ -409,7 +405,7 @@ struct Bdpt {
         return 1 / w;
     }
 
-    /*static*/ /*inline bool is_shadow(const Scene &scene,const Vec3 &y,const Vec3 &z) {
+    /*static*/ inline bool is_shadow(const Scene &scene,const Vec3 &y,const Vec3 &z) {
 		const R max_t = (y - z).abs() - EPS;
 		for(Shape *shape : scene.shapes){
 			Intersection_point *intersection = shape->get_intersection(Ray(y,z - y));
@@ -420,7 +416,7 @@ struct Bdpt {
 			delete intersection;
 		}
 		return false;
-    }*/
+    }
 
 	/*static*/ void set_light(Scene &scene) {
 		if(scene.lights.size() < 1)
