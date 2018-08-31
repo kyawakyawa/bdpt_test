@@ -388,8 +388,8 @@ struct Bdpt {
 
         R m = 1;
 
-        for(int i = s - 1;i >= 0;i--) {
-            m *= P[i];
+        for(int i = s - 1;i >= 1;i--) {
+            m /= P[i];
             w += m * m;
         }
 

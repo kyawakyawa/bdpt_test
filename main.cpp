@@ -38,7 +38,7 @@ int main() {
 
     Bdpt bdpt;
 
-    bdpt.bdpt(scene,10);
+    bdpt.bdpt(scene,128);
 
     //Pt pt;
 
