@@ -154,19 +154,43 @@ struct Bdpt {
             const R dist_square = intersection->distance * intersection->distance;
             const R cos_ = normal * (-ray.direction);
 
-            /*if(is_light_tracing) {
+            if(is_light_tracing) {
 
+                Vec3 zp;
                 int i = 0,j = 0;
-                const R lens_t = scene.camera->get_intersection_with_lens(ray,i,j);
-                if(lens_t > EPS && (intersection_info == nullptr || intersection->distance - lens_t > EPS))
-                    std::cerr << i << " " << j << std::endl;
-
+                const R lens_t = scene.camera->get_intersection_with_lens(ray,zp,i,j);
                 if(lens_t > EPS && (intersection_info == nullptr || intersection->distance - lens_t > EPS)) {
-                    scene.camera->img_l[i * scene.camera->pixel_w + j] = FColor(1,0,0);//FColor(depth == 0,0,0) ;FColor(std::max(1.0 - depth * 0.1,0.0),std::min(depth * 0.1,1.0),0);
+                    const Vec3 z0 = ray.start + ray.direction * lens_t;
+
+                    std::vector<Vertex_data_for_bdpt> x;
+
+                    for(int i = 0;i < sub_path_vertex.size();i++) {
+                        x.push_back(sub_path_vertex[i]);
+                    }
+
+
+                    Vertex_data_for_bdpt ys2(//y_{s-2}
+                        z0
+                        ,scene.camera->dir
+                        ,Material(FColor(0,0,0))
+                        ,alpha
+                        ,previous_p_sigma * cos_ / dist_square
+                        ,scene.camera->pdf_l
+                    );
+
+                    Vertex_data_for_bdpt &ys1 = x[x.size() - 1];//y_{s-1}
+
+                    ys1.p_eye = p_area_measure_from_camera(scene,ys2.position,ys1.position,ys2.normal,ys1.normal,(ys1.position - ys2.position).abs_square());
+
+                    x.push_back(ys2);
+
+                    const R cos_sensor = (z0 - zp).normalized() * scene.camera->dir;
+                    const R cos_object_plane = (ray.start - z0) * scene.camera->dir;
+
+                    scene.camera->img_l[i * scene.camera->pixel_w + j] += get_weight(x,x.size(),0) * x[x.size() - 1].alpha * std::pow(cos_sensor / cos_object_plane,4);
                     break;
                 }
-
-            }*/
+            }
 
 		    if(intersection_info == nullptr){//物体が存在しない
                 break;
@@ -290,6 +314,21 @@ struct Bdpt {
         return P;
     }
 
+    inline R p_area_measure_from_camera(const Scene &scene
+                            ,const Vec3 &x0
+                            ,const Vec3 &x1
+                            ,const Vec3 &n0
+                            ,const Vec3 &n1
+                            ,const R dist_square) //x1とx2の距離の二乗
+                            {
+        const Vec3 omega = (x1 - x0).normalized();
+        const R cos_1 = std::abs(omega * n1);
+        const R cos_0 = std::abs(omega * n0);
+
+        return (cos_1 * scene.camera->dist_sensor_lens * scene.camera->dist_sensor_lens) 
+                / (dist_square * std::pow(cos_0,3));
+    }
+
     /*static*/ inline Intersection_info* get_intersection_of_nearest(const Ray &ray,const Scene &scene) {
 		R min_t = INF;
 		Intersection_info *intersection_info = new Intersection_info();
@@ -366,7 +405,11 @@ struct Bdpt {
                 for(int i = 0;i < s;i++) x.push_back(light_sub_path_vertex[i]);
                 for(int i = t - 1;i >= 0;i--) x.push_back(eye_sub_path_vertex[i]);
 
-                x[s - 1].p_eye = p_area_measure(z,omega_z_in,cos_z,cos_y,dist_square);
+                if(t == 1) {
+                    x[s - 1].p_eye = p_area_measure_from_camera(scene,x[s].position,x[s - 1].position,x[s].normal,x[s - 1].normal,dist_square);
+                }else {
+                    x[s - 1].p_eye = p_area_measure(z,omega_z_in,cos_z,cos_y,dist_square);
+                }
                 x[s].p_light = p_area_measure(y,omega_y_out,cos_y,cos_z,dist_square);
 
                 const R w = get_weight(x,s,t);
@@ -428,7 +471,7 @@ struct Bdpt {
 
         m = 1;
 
-        for(int i = s;i <= k - 1;i++) {
+        for(int i = s;i <= k;i++) {
             m *= P[i];
             w += m * m;
         }
